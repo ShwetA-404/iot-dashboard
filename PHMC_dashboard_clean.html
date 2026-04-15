@@ -1,0 +1,477 @@
+
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+  <meta charset="utf-8">
+  <title>PHMC — Real‑Time Dashboard (Pro • Values)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/css/bootstrap.min.css">
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.1/js/bootstrap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b1220;
+      --card: #111827;
+      --muted: #9ca3af;
+      --text: #e5e7eb;
+      --title: #f3f4f6;
+      --accent: #60a5fa;
+      --ok: #10b981;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+      --border: #1f2937;
+      --shadow: 0 6px 18px rgba(0,0,0,.25);
+    }
+    html.light {
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --muted: #6b7280;
+      --text: #0f172a;
+      --title: #0b1220;
+      --accent: #2563eb;
+      --ok: #16a34a;
+      --warn: #d97706;
+      --bad: #dc2626;
+      --border: #e6e7eb;
+      --shadow: 0 4px 10px rgba(2,6,23,.06);
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); }
+    .header { position: sticky; top:0; z-index: 9; background: var(--bg); border-bottom: 1px solid var(--border); padding: 12px 18px; }
+    .brand { font-weight:700; letter-spacing:.3px; color: var(--title); margin:0; }
+    .subtle { color: var(--muted); }
+    .wrap { padding:18px; }
+    .card { background: var(--card); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:14px; box-shadow: var(--shadow); }
+    .card h4 { margin:0 0 12px; font-weight:700; color: var(--title); font-size:16px; }
+    .kv { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed var(--border); }
+    .kv:last-child { border-bottom:none; }
+    .grid-gap { margin-left:-8px; margin-right:-8px; }
+    .grid-gap > [class*="col-"] { padding-left:8px; padding-right:8px; }
+    .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px; border:1px solid var(--border); color: var(--text); background:rgba(148,163,184,.08); margin-right:6px; }
+    .pill.ok { border-color: rgba(16,185,129,.4); background: rgba(16,185,129,.12); color: var(--ok); }
+    .pill.warn { border-color: rgba(245,158,11,.4); background: rgba(245,158,11,.12); color: var(--warn); }
+    .pill.bad { border-color: rgba(239,68,68,.4); background: rgba(239,68,68,.12); color: var(--bad); }
+    .kpis { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:10px; }
+    .kpi { background: var(--card); border:1px solid var(--border); border-radius:12px; padding:12px 14px; box-shadow: var(--shadow); }
+    .kpi .label { font-size:12px; color: var(--muted); }
+    .kpi .value { font-weight:700; font-size:20px; margin-top:2px; }
+    .conn-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-left:8px; background: var(--bad); vertical-align:middle; }
+    .conn-dot.ok { background: var(--ok); }
+    .btn-ghost { border:1px solid var(--border); background: transparent; color: var(--text); border-radius:10px; padding:6px 10px; }
+    .btn-ghost:hover { background: rgba(148,163,184,.12); }
+    .json-box { background:#0b1020; color:#cbd5e1; font-family:ui-monospace, Menlo, Consolas, monospace; font-size:12px; padding:10px; border-radius:8px; max-height:220px; overflow:auto; border:1px solid #182035; }
+    .gauge-box { height: 170px; }
+    .gauge-box.md { height: 150px; }
+    .pie-box { height: 210px; }
+    .glabel { text-align:center; font-size:12px; color: var(--muted); margin-top:4px; }
+    .gvalue { text-align:center; font-weight:700; font-size:16px; margin-top:2px; color: var(--title); }
+    .footer { color: var(--muted); font-size:12px; padding: 12px 18px 22px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="row" style="margin:0">
+      <div class="col-xs-8">
+        <h3 class="brand">Pump Health Monitoring</h3>
+        <div class="subtle" style="margin-top:2px">
+          Last update: <span id="lastUpd">—</span>
+          <span id="connDot" class="conn-dot" title="Broker connection"></span>
+        </div>
+      </div>
+      <div class="col-xs-4 text-right" style="padding-top:10px">
+        <button id="modeBtn" class="btn-ghost" onclick="toggleTheme()">🌙 Theme</button>
+        <button class="btn-ghost" data-toggle="modal" data-target="#settingsModal">⚙️ Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap container-fluid">
+    <div class="kpis" style="margin-bottom:12px">
+      <div class="kpi"><div class="label">kW Total</div><div id="kpi_kwt" class="value">—</div></div>
+      <div class="kpi"><div class="label">PF Total</div><div id="kpi_pft" class="value">—</div></div>
+      <div class="kpi"><div class="label">Freq (Hz)</div><div id="kpi_freq" class="value">—</div></div>
+      <div class="kpi"><div class="label">Runtime (Total, m)</div><div id="kpi_runtime" class="value">—</div></div>
+    </div>
+
+    <div class="row grid-gap">
+      <div class="col-md-4">
+        <div class="card">
+          <h4>Device</h4>
+          <div class="kv"><span>Modem ID</span><span id="modemID">—</span></div>
+          <div class="kv"><span>Controller ID</span><span id="ctrlID">—</span></div>
+          <div class="kv"><span>Flash ID</span><span id="flashID">—</span></div>
+          <div class="kv"><span>Vendor / App / Asset</span><span id="ids">—</span></div>
+          <div class="kv"><span>Data Time</span><span id="dgt">—</span></div>
+          <div style="margin-top:8px">
+            <span id="timerBadge" class="pill">Timer: —</span>
+            <span id="slotBadge" class="pill">Slot: —</span>
+            <span id="modeBadge" class="pill">Mode: —</span>
+            <span id="faultBadge" class="pill">Fault: —</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h4>Energy</h4>
+          <div class="kv"><span>Import kWh</span><span id="eneCn">—</span></div>
+          <div class="kv"><span>Export kWh</span><span id="eneEx">—</span></div>
+          <div class="kv"><span>iKVAh</span><span id="iKVAh">—</span></div>
+          <div class="kv"><span>eKVAh</span><span id="eKVAh">—</span></div>
+          <div class="kv"><span>Runtime (last, min)</span><span id="lastRunTimeM">—</span></div>
+          <div class="kv"><span>Runtime (total, min)</span><span id="runtimeTotalM">—</span></div>
+          <div class="kv"><span>Run window (set/current, s)</span><span id="runWindow">—</span></div>
+        </div>
+      </div>
+
+      <div class="col-md-8">
+        <div class="card">
+          <h4>Electrical Gauges</h4>
+          <div class="row text-center">
+            <div class="col-sm-4">
+              <div id="gVoltR" class="gauge-box"></div>
+              <div class="glabel">VR (V)</div><div id="gvVR" class="gvalue">—</div>
+            </div>
+            <div class="col-sm-4">
+              <div id="gVoltY" class="gauge-box"></div>
+              <div class="glabel">VY (V)</div><div id="gvVY" class="gvalue">—</div>
+            </div>
+            <div class="col-sm-4">
+              <div id="gVoltB" class="gauge-box"></div>
+              <div class="glabel">VB (V)</div><div id="gvVB" class="gvalue">—</div>
+            </div>
+          </div>
+          <div class="row text-center" style="margin-top:10px">
+            <div class="col-sm-4">
+              <div id="gCurrR" class="gauge-box md"></div>
+              <div class="glabel">IR (A)</div><div id="gvIR" class="gvalue">—</div>
+            </div>
+            <div class="col-sm-4">
+              <div id="gCurrY" class="gauge-box md"></div>
+              <div class="glabel">IY (A)</div><div id="gvIY" class="gvalue">—</div>
+            </div>
+            <div class="col-sm-4">
+              <div id="gCurrB" class="gauge-box md"></div>
+              <div class="glabel">IB (A)</div><div id="gvIB" class="gvalue">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h4>Power Mix</h4>
+          <div class="row text-center">
+            <div class="col-sm-6"><div id="pieKW" class="pie-box"></div><div class="subtle">kW distribution</div></div>
+            <div class="col-sm-6"><div id="pieKVAR" class="pie-box"></div><div class="subtle">kVAr distribution</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row grid-gap">
+      <div class="col-md-4">
+        <div class="card">
+          <h4>PF & Frequency</h4>
+          <div class="row text-center">
+            <div class="col-sm-6">
+              <div id="gPF" class="gauge-box md"></div>
+              <div class="glabel">PF Total</div><div id="gvPF" class="gvalue">—</div>
+            </div>
+            <div class="col-sm-6">
+              <div id="gFreq" class="gauge-box md"></div>
+              <div class="glabel">Frequency (Hz)</div><div id="gvFreq" class="gvalue">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card">
+          <h4>THD</h4>
+          <div class="kv"><span>THD V R</span><span id="thdVR">—</span></div>
+          <div class="kv"><span>THD V Y</span><span id="thdVY">—</span></div>
+          <div class="kv"><span>THD V B</span><span id="thdVB">—</span></div>
+          <div class="kv"><span>THD I R</span><span id="thdCR">—</span></div>
+          <div class="kv"><span>THD I Y</span><span id="thdCY">—</span></div>
+          <div class="kv"><span>THD I B</span><span id="thdCB">—</span></div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card">
+          <h4>Status & Payload</h4>
+          <div class="kv"><span>Latest Fault</span><span id="latestFault">—</span></div>
+          <div class="kv"><span>Fault Status</span><span id="Faultstatus">—</span></div>
+          <div style="margin-top:8px"><div id="rawBox" class="json-box">—</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">© 2025 e-Paniwala — PHMC</div>
+  </div>
+
+  <div id="settingsModal" class="modal fade" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+          <h4 class="modal-title">Settings</h4>
+        </div>
+        <div class="modal-body">
+          <div class="form-group"><label>Broker</label><input id="cfg_broker" class="form-control" value="mc.vidaniautomations.com"></div>
+          <div class="form-group"><label>Port</label><input id="cfg_port" type="number" class="form-control" value="20012"></div>
+          <div class="form-group"><label>Username</label><input id="cfg_user" class="form-control" value="z"></div>
+          <div class="form-group"><label>Password</label><input id="cfg_pass" type="password" class="form-control" value="2acc"></div>
+          <hr>
+          <div class="form-group"><label>Subscribe Topic</label><input id="cfg_sub_topic" class="form-control" value="vidani/smartphmc/862360078068181/data"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" onclick="saveAndReconnect()">Save & Reconnect</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+function toggleTheme(){
+  var cl = document.documentElement.classList;
+  if (cl.contains('light')) { cl.remove('light'); document.getElementById('modeBtn').textContent = '☀️ Theme'; }
+  else { cl.add('light'); document.getElementById('modeBtn').textContent = '🌙 Theme'; }
+}
+var thresholds = {
+  volt: { green:[220,250], min:0, max:300 },
+  curr: { min:0, max:300 },
+  pf:   { min:0, max:1, good:0.95, warn:0.9 },
+  freq: { min:45, max:55 }
+};
+function bandColors(min, greenL, greenH, max){
+  return [[min, '#ef4444'], [greenL, '#f59e0b'], [greenH, '#10b981'], [max, '#f59e0b']];
+}
+function clamp(x, lo, hi){ return Math.max(lo, Math.min(hi, x)); }
+function fmt(x, d){ if(x===undefined||x===null||isNaN(x)) return '—'; return Number(x).toFixed(d); }
+
+var cfg = {
+  broker: localStorage.getItem('phmc_broker') || 'mc.vidaniautomations.com',
+  port: parseInt(localStorage.getItem('phmc_port') || '20012', 10),
+  user: localStorage.getItem('phmc_user') || 'z',
+  pass: localStorage.getItem('phmc_pass') || '2acc',
+  subTopic: localStorage.getItem('phmc_sub_topic') || 'vidani/smartphmc/862360078068181/data'
+};
+$('#settingsModal').on('show.bs.modal', function(){
+  $('#cfg_broker').val(cfg.broker);
+  $('#cfg_port').val(cfg.port);
+  $('#cfg_user').val(cfg.user);
+  $('#cfg_pass').val(cfg.pass);
+  $('#cfg_sub_topic').val(cfg.subTopic);
+});
+function saveAndReconnect(){
+  cfg.broker = $('#cfg_broker').val() || cfg.broker;
+  cfg.port   = parseInt($('#cfg_port').val() || cfg.port, 10);
+  cfg.user   = $('#cfg_user').val() || cfg.user;
+  cfg.pass   = $('#cfg_pass').val() || cfg.pass;
+  cfg.subTopic = $('#cfg_sub_topic').val() || cfg.subTopic;
+  localStorage.setItem('phmc_broker', cfg.broker);
+  localStorage.setItem('phmc_port', String(cfg.port));
+  localStorage.setItem('phmc_user', cfg.user);
+  localStorage.setItem('phmc_pass', cfg.pass);
+  localStorage.setItem('phmc_sub_topic', cfg.subTopic);
+  try { if (mqtt) mqtt.disconnect(); } catch(e){}
+  startMQTT();
+  $('#settingsModal').modal('hide');
+}
+
+var mqtt = null, reconnectTimer=null, connecting=false;
+function setConnDot(ok){ document.getElementById('connDot').className = ok ? 'conn-dot ok' : 'conn-dot'; }
+function startMQTT(){
+  if (connecting) return;
+  
+  connecting = true;
+  clearTimeout(reconnectTimer);
+  try{
+    mqtt = new Paho.MQTT.Client(cfg.broker, cfg.port, 'web-' + Math.random().toString(16).slice(2));
+    mqtt.onMessageArrived = onMessageArrived;
+    mqtt.onConnectionLost = function(){ setConnDot(false); scheduleReconnect(); };
+    mqtt.connect({
+      timeout: 3,
+      onSuccess: function(){ connecting=false; setConnDot(true); mqtt.subscribe(cfg.subTopic); },
+      onFailure: function(){ connecting=false; setConnDot(false); scheduleReconnect(); },
+      userName: cfg.user,
+      password: cfg.pass
+    });
+  }catch(e){ connecting=false; setConnDot(false); scheduleReconnect(); }
+}
+function scheduleReconnect(){
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(startMQTT, 2000);
+}
+
+function gaugeOptionHalf(title, maxVal, value, colorBands){
+  return {
+    animation: false,
+    series: [{
+      type: 'gauge',
+      startAngle: 180, endAngle: 0,
+      min: 0, max: maxVal,
+      splitNumber: 4,
+      axisLine: { lineStyle: { width: 10, color: colorBands } },
+      axisTick: { show: false },
+      splitLine: { length: 10, lineStyle: { width: 1, color:'#94a3b8' } },
+      axisLabel: { distance: -36, color:'#94a3b8' },
+      pointer: { show: true, length: '70%' },
+      anchor: { show: true, size: 6 },
+      detail: { show: false },
+      title: { show: false },
+      data: [{ value: value, name: title }]
+    }]
+  };
+}
+function pieOption(labels, data){
+  return {
+    animation: false,
+    tooltip: { trigger:'item' },
+    legend: { bottom: 0, textStyle: { color: '#94a3b8' } },
+    series: [{
+      type: 'pie',
+      radius: ['40%','70%'],
+      label: { color: '#cbd5e1' },
+      data: labels.map(function(l, i) { return {name:l, value:data[i]||0}; })
+    }]
+  };
+}
+
+var charts = {};
+function initCharts(){
+  charts.vr = echarts.init(document.getElementById('gVoltR'));
+  charts.vy = echarts.init(document.getElementById('gVoltY'));
+  charts.vb = echarts.init(document.getElementById('gVoltB'));
+  charts.ir = echarts.init(document.getElementById('gCurrR'));
+  charts.iy = echarts.init(document.getElementById('gCurrY'));
+  charts.ib = echarts.init(document.getElementById('gCurrB'));
+  charts.pf = echarts.init(document.getElementById('gPF'));
+  charts.freq = echarts.init(document.getElementById('gFreq'));
+  charts.kw = echarts.init(document.getElementById('pieKW'));
+  charts.kvar = echarts.init(document.getElementById('pieKVAR'));
+
+  var vC = bandColors(thresholds.volt.min, thresholds.volt.green[0], thresholds.volt.green[1], thresholds.volt.max).map(function(x){return [x[0]/thresholds.volt.max, x[1]];});
+
+  charts.vr.setOption(gaugeOptionHalf('VR', thresholds.volt.max, 0, vC), true);
+  charts.vy.setOption(gaugeOptionHalf('VY', thresholds.volt.max, 0, vC), true);
+  charts.vb.setOption(gaugeOptionHalf('VB', thresholds.volt.max, 0, vC), true);
+
+  var currC = [[0,'#10b981'],[1,'#ef4444']];
+  charts.ir.setOption(gaugeOptionHalf('IR', thresholds.curr.max, 0, currC), true);
+  charts.iy.setOption(gaugeOptionHalf('IY', thresholds.curr.max, 0, currC), true);
+  charts.ib.setOption(gaugeOptionHalf('IB', thresholds.curr.max, 0, currC), true);
+
+  var pfC = [[0,'#ef4444'],[thresholds.pf.warn,'#f59e0b'],[thresholds.pf.good,'#10b981'],[1,'#10b981']].map(function(x){return [x[0]/1, x[1]];});
+  charts.pf.setOption(gaugeOptionHalf('PF', thresholds.pf.max, 0, pfC), true);
+
+  charts.freq.setOption(gaugeOptionHalf('Hz', 10, 0, [[0,'#ef4444'],[0.2,'#f59e0b'],[0.5,'#10b981'],[0.8,'#f59e0b'],[1,'#ef4444']] ), true);
+
+  charts.kw.setOption(pieOption(['R','Y','B'], [0,0,0]), true);
+  charts.kvar.setOption(pieOption(['R','Y','B'], [0,0,0]), true);
+}
+
+function updGauge(chart, maxVal, value){
+  chart.setOption({ series:[{ max: maxVal, data:[{ value: value }] }] }, false, true);
+}
+function updPie(chart, a,b,c){
+  chart.setOption({ series:[{ data:[ {name:'R', value:a||0}, {name:'Y', value:b||0}, {name:'B', value:c||0} ] }] }, false, true);
+}
+
+var lastPayload = null, lastUI = 0;
+function setText(id, v){ var el=document.getElementById(id); if(el) el.textContent = v; }
+function applyToUI(con){
+  // Gauges
+  var vr = Number(con.voltR||0), vy = Number(con.voltY||0), vb = Number(con.voltB||0);
+  var ir = Number(con.currR||0), iy = Number(con.currY||0), ib = Number(con.currB||0);
+  var pf = Number(con.powFT||0);
+  var f = Number(con.freqY||0); var fScaled = clamp(f, thresholds.freq.min, thresholds.freq.max) - thresholds.freq.min; // 0..10
+
+  updGauge(charts.vr, thresholds.volt.max, vr); setText('gvVR', fmt(vr,1)+' V');
+  updGauge(charts.vy, thresholds.volt.max, vy); setText('gvVY', fmt(vy,1)+' V');
+  updGauge(charts.vb, thresholds.volt.max, vb); setText('gvVB', fmt(vb,1)+' V');
+
+  updGauge(charts.ir, thresholds.curr.max, ir); setText('gvIR', fmt(ir,1)+' A');
+  updGauge(charts.iy, thresholds.curr.max, iy); setText('gvIY', fmt(iy,1)+' A');
+  updGauge(charts.ib, thresholds.curr.max, ib); setText('gvIB', fmt(ib,1)+' A');
+
+  updGauge(charts.pf, thresholds.pf.max, pf); setText('gvPF', fmt(pf,2));
+  updGauge(charts.freq, thresholds.freq.max - thresholds.freq.min, fScaled); setText('gvFreq', fmt(f,2)+' Hz');
+
+  // Pies
+  updPie(charts.kw, Number(con.kwR||0), Number(con.kwY||0), Number(con.kwB||0));
+  updPie(charts.kvar, Number(con.kvarR||0), Number(con.kvarY||0), Number(con.kvarB||0));
+
+  // KPI
+  setText('kpi_kwt', fmt((Number(con.kwR||0)+Number(con.kwY||0)+Number(con.kwB||0)),2));
+  setText('kpi_pft', fmt(pf,2));
+  setText('kpi_freq', fmt(f,2));
+  setText('kpi_runtime', fmt(con.runtimeTotalM,0));
+
+  // Energy & Status
+  setText('eneCn', fmt(con.eneCn,2));
+  setText('eneEx', fmt(con.eneEx,2));
+  setText('iKVAh', fmt(con.iKVAh,2));
+  setText('eKVAh', fmt(con.eKVAh,2));
+  setText('lastRunTimeM', fmt(con.lastRunTimeM,0));
+  setText('runtimeTotalM', fmt(con.runtimeTotalM,0));
+  setText('runWindow', (con.run_time!=null?con.run_time:'—') + ' / ' + (con.current_run_time!=null?con.current_run_time:'—'));
+
+  var lf = (con.latestFault!=null)?String(con.latestFault):'—';
+  var fs = (con.Faultstatus!=null)?String(con.Faultstatus):'—';
+  setText('latestFault', lf);
+  setText('Faultstatus', fs);
+
+  // Badges
+  var timer = (con.timer===1);
+  document.getElementById('timerBadge').className = 'pill ' + (timer ? 'ok' : 'warn');
+  setText('timerBadge', 'Timer: ' + (timer?'ON':'OFF'));
+  document.getElementById('slotBadge').className = 'pill';
+  setText('slotBadge', 'Slot: ' + (con.slot!=null?con.slot:'—'));
+  var modeMap = {0:'No Action',1:'Time Based',2:'Running Hour',3:'Restricted'};
+  document.getElementById('modeBadge').className = 'pill';
+  setText('modeBadge', 'Mode: ' + (modeMap[con.mode]||con.mode));
+  var hasFault = Number(con.latestFault||0) > 0;
+  document.getElementById('faultBadge').className = 'pill ' + (hasFault ? 'bad' : 'ok');
+  setText('faultBadge', 'Fault: ' + (con.latestFault!=null?con.latestFault:'—'));
+}
+
+function onMessageArrived(message){
+  var now = new Date();
+  setText('lastUpd', now.toLocaleString());
+  var raw = message.payloadString;
+  document.getElementById('rawBox').textContent = raw;
+  var obj; try { obj = JSON.parse(raw); } catch(e){ return; }
+
+  var con = null;
+  try { var pc = obj.pc || obj['pc']; var cin = pc && (pc['m2m:cin'] || pc['M2M:cin']); con = cin && cin.con; if (typeof con === 'string') con = JSON.parse(con); } catch(e){}
+  if(!con && obj.con) { con = (typeof obj.con === 'string') ? JSON.parse(obj.con) : obj.con; }
+  if(!con) return;
+
+  setText('modemID', con.modemID || '—');
+  setText('ctrlID', con.ctrlID || '—');
+  setText('flashID', con.flashID || '—');
+  setText('ids', [con.vndID, con.appID, con.astTy].filter(function(x){return !!x;}).join(' / ') || '—');
+  setText('dgt', con.dgt || obj.ot || '—');
+
+  lastPayload = con;
+}
+
+setInterval(function(){
+  var nowMs = Date.now();
+  if (lastPayload && nowMs - lastUI >= 900) {
+    applyToUI(lastPayload);
+    lastUI = nowMs;
+  }
+}, 250);
+
+document.addEventListener('DOMContentLoaded', function(){
+  
+  initCharts();
+  startMQTT();
+});
+</script>
+</body>
+</html>
