@@ -219,7 +219,7 @@
         </div>
         <div class="modal-body">
           <div class="form-group"><label>Broker</label><input id="cfg_broker" class="form-control" value="mqtt.vidaniautomations.com"></div>
-          <div class="form-group"><label>Port</label><input id="cfg_port" type="number" class="form-control" value="8883"></div>
+          <div class="form-group"><label>Port</label><input id="cfg_port" type="number" class="form-control" value="8084"></div>
           <div class="form-group"><label>Username</label><input id="cfg_user" class="form-control" value="z"></div>
           <div class="form-group"><label>Password</label><input id="cfg_pass" type="password" class="form-control" value="2acc"></div>
           <hr>
@@ -253,7 +253,7 @@ function fmt(x, d){ if(x===undefined||x===null||isNaN(x)) return '—'; return N
 
 var cfg = {
   broker: localStorage.getItem('phmc_broker') || 'mc.vidaniautomations.com',
-  port: parseInt(localStorage.getItem('phmc_port') || '20012', 10),
+  port: parseInt(localStorage.getItem('phmc_port') || '8084', 10),
   user: localStorage.getItem('phmc_user') || 'z',
   pass: localStorage.getItem('phmc_pass') || '2acc',
   subTopic: localStorage.getItem('phmc_sub_topic') || 'vidani/smartphmc/862360078068181/data'
@@ -289,7 +289,7 @@ function startMQTT(){
   connecting = true;
   clearTimeout(reconnectTimer);
   try{
-    mqtt = new Paho.MQTT.Client(cfg.broker, cfg.port, 'web-' + Math.random().toString(16).slice(2));
+    mqtt = new Paho.MQTT.Client(cfg.broker, cfg.port, "/mqtt",'web-' + Math.random().toString(16).slice(2));
     mqtt.onMessageArrived = onMessageArrived;
     mqtt.onConnectionLost = function(){ setConnDot(false); scheduleReconnect(); };
     mqtt.connect({
